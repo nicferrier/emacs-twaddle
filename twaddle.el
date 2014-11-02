@@ -286,9 +286,15 @@ then sends HTML back to eww."
     (fill-paragraph)
     (buffer-string)))
 
+(defun twaddle/get-twitter-buffer ()
+  (let ((buf (get-buffer "*twaddle-twitter*")))
+    (unless buf
+      (with-current-buffer (setq buf (get-buffer-create "*twaddle-twitter*"))
+        (twaddle-timeline-mode)))
+    buf))
+
 (defun twaddle/twitter-buffer (json)
-  (with-current-buffer (get-buffer-create "*twaddle-twitter*")
-    (setq buffer-read-only t)
+  (with-current-buffer (twaddle/get-twitter-buffer)
     (let ((buffer-read-only nil))
       (erase-buffer)
       (--each (append (json-read-from-string json) nil)
@@ -297,26 +303,43 @@ then sends HTML back to eww."
           ((alist 'text text 'user (alist 'screen_name username))
            (insert
             (s-format
-             "${text}\n${user}\n\n"
+             "${text}¶\n${user}\n\n"  ;; unicode here
              'aget
              `(("text" . ,(fill-string (decode-coding-string text 'utf-8)))
                ("user" . ,username))))))))
     (pop-to-buffer (current-buffer))))
 
+(defun twaddle-timeline-next-link ()
+  (interactive)
+  ;; letn is from noflet
+  (letn seek ((pt (next-single-property-change (point) 'face)))
+    (if pt
+        (if (eq (get-text-property pt 'face) 'link)
+            (goto-char pt)
+            (seek (next-single-property-change pt 'face)))
+        (goto-char (point-min))
+        (seek (next-single-property-change (point) 'face)))))
+
 (defconst twaddle/timeline-mode-map
   (let ((map (make-keymap)))
     (define-key map (kbd "RET") 'browse-url-at-point)
+    (define-key map (kbd "TAB") 'twaddle-timeline-next-link)
     map))
 
-(define-generic-mode 'twaddle-timeline-mode
-  nil ; comments
-  nil; keywords
-  `(("\\(http\\(s\\)*://[^ \n]+\\)" . 'link)
-    ("\\(@[^A-Za-z0-9_]+\\)" . 'bold)) ; font-lock list
-  nil ; auto-mode-alist
-  '((lambda () (use-local-map twaddle/timeline-mode-map)))
-  "Twaddle's mode")
+(define-derived-mode twaddle-timeline-mode
+    special-mode "Twaddle"
+    "Twitter timelines
 
+\\{twaddle/timeline-mode-map}"
+    (setq buffer-read-only t)
+    (setq font-lock-defaults
+          '((("\\(http\\(s\\)*://[^ ¶\n]+\\)" . 'link)
+             ("\\(@[^A-Za-z0-9_]+\\)" . 'bold)
+             ("\\(\"[^¶\"]+[\"¶]\\)" . 'font-lock-string-face) ; make strings terminate on tweet end
+             ("¶" . 'shadow)
+             )
+            t))
+    (use-local-map twaddle/timeline-mode-map))
 
 (defconst twaddle/twitter-status-home
   "https://api.twitter.com/1.1/statuses/%s.json"
@@ -340,15 +363,12 @@ for more details.")
    :oauth-token-secret (kva "oauth_token_secret" twaddle/auth-details)))
 
 
-twaddle/auth-details
-(twaddle/auth-start)
-(twaddle/status-get "home_timeline")
-
-
-
-(defun twaddle/init ()
+(defun twaddle-init ()
+  (interactive)
   ;; we start elnode to collect the callback
   (elnode-start 'twaddle-callback-handler :port 8091)
   (twaddle/auth-start))
+
+(twaddle/status-get "home_timeline")
 
 ;;; twaddle.el ends here
