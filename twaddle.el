@@ -2,16 +2,51 @@
 
 (require 'web)
 (require 'url-util) ; url-hexify-string
-(require 'cl) ; for flet - we could use noflet maybe?
+(require 'cl-lib)
 (require 'noflet)
-
 (require 'elnode)
+(require 'kv)
+(require 'shadchen)
 
-(defun twaddle-callback-handler (httpcon)
-  (message "twaddle-elnode: %S" (elnode-http-query httpcon))
-  (elnode-send-json httpcon '((data . "some data"))))
+(defun twaddle/log (str &rest vars)
+  "Helps with debugging."
+  (with-current-buffer (get-buffer-create "*twitter-log*")
+    (goto-char (point-max))
+    (insert (apply 'format str vars) "\n")))
 
-;;(elnode-start 'twaddle-callback-handler :port 8091)
+(defconst twaddle-consumer-key  "jPzM4OZODLvdCSvsiCEPrg")
+(defconst twaddle-consumer-secret "PU2P33dfkyj1lguf2SZ71TcTVxulLUppReGHuk5aE8")
+
+(cl-defun twaddle/web (handler url params
+                               &key
+                               (method "POST")
+                               oauth-token
+                               oauth-token-secret)
+  "Specific web client eases the creation of oauth header."
+  (let* ((oauth-header
+          (twaddle/oauth1-header
+           url
+           :method method
+           :http-params params
+           :oauth-token oauth-token
+           :oauth-token-secret oauth-token-secret))
+         (hdrs (list
+                oauth-header
+                (cons "User-Agent" "emacs-twaddle"))))
+    (if (equal method "POST")
+        (web-http-post
+         handler
+         :url url :data params
+         :extra-headers hdrs :logging t)
+        (web-http-get
+         handler
+         :url (concat url "?" (web-to-query-string params))
+         :extra-headers hdrs :logging t))))
+
+;;; twitter oauth stuff resources
+;; https://dev.twitter.com/web/sign-in/implementing
+;; https://apps.twitter.com/app/4519285/show - my keys
+
 
 ;; This is lifted from here:
 ;;
@@ -46,64 +81,127 @@ string.  Use the function `encode-hex-string' or the function
          (concat opad (sha1 (concat ipad message) nil nil t))
          nil nil t)))))
 
-(defconst twaddle-consumer-key "pGyt24tDKgjja5GULbFoA")
-(defconst twaddle-consumer-secret "mToqSH9MwGXAStXmOT8ZrqKycU2MUqwdHsyZeGxTAKU")
-(defconst twaddle-request-token-url "https://api.twitter.com/oauth/request_token")
 (defconst twaddle-authorize-url	"https://api.twitter.com/oauth/authorize")
-(defconst twaddle-access-token-url "https://api.twitter.com/oauth/access_token")
-(defconst twaddle-callback-url "http://nic.ferrier.me.uk/emacs-twaddle")
+(defconst twaddle-callback-url "http://nic.ferrier.me.uk/emacs-twaddle"
+  "This is defined in the app settings on twitter.
 
-(defun twaddle-log (con hdr data)
-  (with-current-buffer (get-buffer-create "*twitter-log*")
-     (insert (format "%s %S %s\n" con hdr data))))
+It cannot be localhost so those tricks won't work.")
 
-;; OAuth header and signature implementation
-(defun* twaddle|oauth1-header-do (url
-                                  &key
-                                  http-params method oauth-token
-                                  ;; testing params
-                                  oauth-timestamp oauth-nonce)
-  "Private function implementing oauth header construction."
+(defun twaddle/timestamp () ; pinched from psandford's oauth.el
+  (format "%d" (ftruncate (float-time (current-time)))))
+
+(defun twaddle/join (param-list joiner &optional quote)
+  (let ((sorted
+         (--sort
+          (string-lessp (car it) (car other))
+          param-list)))
+    (mapconcat
+     (lambda (cell)
+       (format
+        "%s=%s"
+        (car cell)
+        (if quote
+            (format "\"%s\"" 
+                    (url-hexify-string (cdr cell)))
+            (url-hexify-string (cdr cell)))))
+     sorted
+     joiner)))
+
+(defun twaddle/conses->alist (&rest conses) ; possible kv function
+  "Make a list of pairs into an alist:
+
+For example:  'a 1 'b 2 'c 3 => '((a . 1)(b . 2)(c . 3))"
+  (loop for cell on conses by 'cddr
+     if (cdr cell)
+     collect (cons (car cell) (cadr cell))
+     else append (car cell)))
+
+(cl-defun twaddle/oauth1-get-sig-base (method url http-params
+                                              &key
+                                              oauth-token
+                                              oauth-token-secret
+                                              oauth-nonce
+                                              oauth-timestamp)
+  "Make the signature base.
+
+Returns a list of: 
+
+  the signature base
+  the oauth-params 
+  the sign-params-str.
+
+Whcih normally you destructure with some matching let like
+`destructuring-bind' or `-let' or `match-let'."
   (let* ((oauth-params
           `(("oauth_consumer_key" . ,twaddle-consumer-key)
             ("oauth_signature_method" . "HMAC-SHA1")
-            ("oauth_timestamp" . ,(or oauth-timestamp (timestamp)))
+            ("oauth_timestamp" . ,(or oauth-timestamp (twaddle/timestamp)))
             ("oauth_nonce" . ,(or oauth-nonce (number-to-string (abs (random)))))
             ("oauth_version" . "1.0")))
          (oauth-sign-params
           (if oauth-token
-              (alist "oauth-token" oauth-token oauth-params)
+              (twaddle/conses->alist "oauth_token" oauth-token oauth-params)
               oauth-params))
          (sign-params
           (append oauth-sign-params
                   (if (hash-table-p http-params) ; maybe we want cond instead
                       (kvhash->alist http-params)
                       http-params)))
-         (sign-params-str (join (string-sort sign-params) "&"))
+         (sign-params-str (twaddle/join sign-params "&"))
          (signature-base
           (s-format "${method}&${url}&${params}" 'aget
-                    (alist "method" method
-                           "url" (url-hexify-string url)
-                           "params" (url-hexify-string sign-params-str))))
-         (signing-key
-          (concat
-           (url-hexify-string twaddle-consumer-secret)
-           "&"
-           (when oauth-token
-             (url-hexify-string oauth-token))))
-         (oauth-sig 
-          (base64-encode-string
-            (twaddle/hmac-sha1 signing-key signature-base)))
-         (oauth-sig-params (list (cons "oauth_signature" oauth-sig)))
-         (oauth-header (append oauth-sign-params oauth-sig-params)))
-    (cons (propertize "Authorization"
-                      :sign-params sign-params-str
-                      :signature-base signature-base
-                      :signing-key signing-key)
-          (format "OAuth %s" (join (string-sort oauth-header) "," t)))))
+                    (twaddle/conses->alist
+                     "method" method
+                     "url" (url-hexify-string url)
+                     "params" (url-hexify-string sign-params-str)))))
+    (list signature-base oauth-sign-params sign-params-str)))
 
-(defun* twaddle/oauth1-header (url &key http-params (method "GET") oauth-token
-                                   oauth-timestamp oauth-nonce)
+;; OAuth header and signature implementation
+(cl-defun twaddle/oauth1-header-do (url
+                                    &key
+                                    http-params
+                                    method
+                                    oauth-token
+                                    oauth-token-secret
+                                    ;; testing params
+                                    oauth-timestamp
+                                    oauth-nonce)
+  "Private function implementing oauth header construction."
+  (match-let
+   (((list signature-base oauth-sign-params sign-params-str)
+     (twaddle/oauth1-get-sig-base
+      method url http-params
+      :oauth-token oauth-token
+      :oauth-timestamp oauth-timestamp
+      :oauth-nonce oauth-nonce)))
+   (let* ((signing-key (concat
+                        (url-hexify-string twaddle-consumer-secret)
+                        "&"
+                        (when (or oauth-token oauth-token-secret)
+                          (concat
+                           (url-hexify-string (or oauth-token-secret oauth-token))))))
+          (oauth-sig (base64-encode-string
+                      (twaddle/hmac-sha1 signing-key signature-base)))
+          (oauth-sig-params (list (cons "oauth_signature" oauth-sig)))
+          (oauth-header (append oauth-sign-params oauth-sig-params))
+          (oauth-header-cons (cons (propertize
+                                    "Authorization"
+                                    :sign-params sign-params-str
+                                    :signature-base signature-base
+                                    :signing-key signing-key)
+                                   (format "OAuth %s"
+                                           (twaddle/join oauth-header ", " t)))))
+     (twaddle/log "%S" (cdr oauth-header-cons))
+     oauth-header-cons)))
+
+(cl-defun twaddle/oauth1-header (url
+                                 &key
+                                 http-params
+                                 (method "GET")
+                                 oauth-token
+                                 oauth-token-secret
+                                 oauth-timestamp
+                                 oauth-nonce)
   "Return the value of the OAuth authorization header.
 
 URL is the absolute HTTP url being requested.
@@ -122,56 +220,135 @@ This process is documented here:
   http://oauth.net/core/1.0/#signing_process
 
 The implementation of this function is largely provided by
-`twaddle|oauth1-header'.
+`twaddle/oauth1-header-do'.
 
 The return value is the string OAuth header."
-  ;; Setup some functions to make the implemetation simpler
-  (noflet ((string-sort (lst)
-             (sort lst (lambda (a b)
-                         (string-lessp (car a) (car b)))))
-           (timestamp () ; pinched from psandford's oauth.el
-             (format "%d" (ftruncate (float-time (current-time)))))
-           (join (param-list joiner &optional quote)
-             (mapconcat
-              (lambda (cell)
-                (format
-                 "%s=%s"
-                 (car cell)
-                 (if quote
-                     (format "\"%s\"" 
-                             (url-hexify-string (cdr cell)))
-                     (url-hexify-string (cdr cell)))))
-              param-list joiner))
-           (alist (&rest conses) ; possible kv function
-             (loop for cell on conses by 'cddr
-                if (cdr cell)
-                collect (cons (car cell) (cadr cell))
-                else append (car cell))))
-    (funcall 'twaddle|oauth1-header-do url
-             :http-params http-params
-             :method method
-             :oauth-token oauth-token
-             :oauth-timestamp oauth-timestamp
-             :oauth-nonce oauth-nonce)))
+  (twaddle/oauth1-header-do url
+                            :http-params http-params
+                            :method method
+                            :oauth-token oauth-token
+                            :oauth-token-secret oauth-token-secret
+                            :oauth-timestamp oauth-timestamp
+                            :oauth-nonce oauth-nonce))
 
-(defun twaddle/request ()
-  (let ((url twaddle-request-token-url))
-    (web-http-post
-     (web-handler (con hdr data)
-       (200
-        (let ((oauth-resp (url-parse-query-string data)))
-          (twaddle-log con (format "%S" oauth-resp) "")
-          (browse-url
-           (format
-            "https://api.twitter.com/oauth/authenticate?oauth_token=%s"
-            (cadr (assoc "oauth_token" oauth-resp))))))
-       (401 
-        (twaddle-log con (format "%S" (kvhash->alist hdr)) data)))
-     :url url
-     :extra-headers
-     (list (twaddle/oauth1-header url :method "POST"))
-     :logging t)))
+(defvar twaddle/auth-details nil)
 
-(twaddle/request)
+(defconst twaddle/access-token-url "https://api.twitter.com/oauth/access_token")
+
+(defun twaddle-callback-handler (httpcon)
+  "When OAUTH happens this gets called.
+
+It fires off the access token confirmation request to twitter and
+then sends HTML back to eww."
+  (twaddle/log "elnode got: %S"
+               (elnode-http-params httpcon))
+  (match-let (((alist "oauth_verifier" verifier
+                      "oauth_token" oauth-token)
+               (elnode-http-params httpcon)))
+    (twaddle/web
+     (lambda (con hdr data)
+       (let ((alist (elnode-http-query-to-alist data)))
+         (setq twaddle/auth-details alist)))
+     twaddle/access-token-url `(("oauth_verifier" . ,verifier))
+     :oauth-token oauth-token)
+    (elnode-send-html
+     httpcon
+     (format
+      "<h1>thanks! twaddle should be working in your emacs now!</h1><pre>%S</pre>"
+      (list verifier oauth-token)))))
+
+(defun twaddle/auth-handle (con hdr data)
+  (case (string-to-int (gethash 'status-code hdr))
+    (200
+     (let ((oauth-resp (url-parse-query-string data)))
+       (twaddle/log "%s %S %s" con oauth-resp data)
+       (eww
+        (format
+         "https://api.twitter.com/oauth/authenticate?oauth_token=%s"
+         (cadr (assoc "oauth_token" oauth-resp))))))
+    (401 
+     (twaddle/log "%S %s" (kvhash->alist hdr) data))))
+
+(defconst twaddle-request-token-url "https://api.twitter.com/oauth/request_token")
+
+(defun twaddle/auth-start ()
+  (let ((url twaddle-request-token-url)
+        (callback "http://localhost:8091/emacs_twaddle"))
+    (twaddle/web 'twaddle/auth-handle url `(("oauth_callback" . ,callback)))))
+
+
+
+;;; Timeline functions
+
+(defun fill-string (str)
+  (with-temp-buffer
+    (insert str)
+    (fill-paragraph)
+    (buffer-string)))
+
+(defun twaddle/twitter-buffer (json)
+  (with-current-buffer (get-buffer-create "*twaddle-twitter*")
+    (setq buffer-read-only t)
+    (let ((buffer-read-only nil))
+      (erase-buffer)
+      (--each (append (json-read-from-string json) nil)
+        (print it)
+        (match it
+          ((alist 'text text 'user (alist 'screen_name username))
+           (insert
+            (s-format
+             "${text}\n${user}\n\n"
+             'aget
+             `(("text" . ,(fill-string (decode-coding-string text 'utf-8)))
+               ("user" . ,username))))))))
+    (pop-to-buffer (current-buffer))))
+
+(defconst twaddle/timeline-mode-map
+  (let ((map (make-keymap)))
+    (define-key map (kbd "RET") 'browse-url-at-point)
+    map))
+
+(define-generic-mode 'twaddle-timeline-mode
+  nil ; comments
+  nil; keywords
+  `(("\\(http\\(s\\)*://[^ \n]+\\)" . 'link)
+    ("\\(@[^A-Za-z0-9_]+\\)" . 'bold)) ; font-lock list
+  nil ; auto-mode-alist
+  '((lambda () (use-local-map twaddle/timeline-mode-map)))
+  "Twaddle's mode")
+
+
+(defconst twaddle/twitter-status-home
+  "https://api.twitter.com/1.1/statuses/%s.json"
+  "Format string for status requests.
+
+Possible values for the %s are \"user_timeline\",
+\"mentions_timeline\", \"home_timeline\".
+
+See
+`https://dev.twitter.com/rest/reference/get/statuses/mentions_timeline'
+for more details.")
+
+(defun twaddle/status-get (timeline)
+  (twaddle/web
+   (lambda (con hdr data) (twaddle/twitter-buffer data))
+   (format twaddle/twitter-status-home timeline)
+   `(("screen_name" . ,(kva "screen_name" twaddle/auth-details))
+     ("count" . "10"))
+   :method "GET"
+   :oauth-token (kva "oauth_token" twaddle/auth-details)
+   :oauth-token-secret (kva "oauth_token_secret" twaddle/auth-details)))
+
+
+twaddle/auth-details
+(twaddle/auth-start)
+(twaddle/status-get "home_timeline")
+
+
+
+(defun twaddle/init ()
+  ;; we start elnode to collect the callback
+  (elnode-start 'twaddle-callback-handler :port 8091)
+  (twaddle/auth-start))
 
 ;;; twaddle.el ends here
