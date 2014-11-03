@@ -318,6 +318,9 @@ then sends HTML back to eww."
 (defvar twaddle/twitter-timeline nil
   "A buffer-local for the timeline you're viewing.")
 
+(defvar twaddle/twitter-last-marker nil
+  "A buffer-local for the position before the next results.")
+
 (defun fill-string (str)
   (with-temp-buffer
     (insert str)
@@ -366,6 +369,8 @@ This is mostly useful for debugging."
       (setq twaddle/twitter-timeline timeline)
       (save-excursion
         (goto-char (point-min))
+        (setq twaddle/twitter-last-marker (point-marker))
+        (set-marker-insertion-type twaddle/twitter-last-marker t)
         (--each (append results nil)
           (match it
             ((alist 'text text
@@ -418,6 +423,10 @@ This is mostly useful for debugging."
   (interactive)
   (set-window-point (selected-window) (point-min)))
 
+(defun twaddle-timeline-last ()
+  (interactive)
+  (goto-char twaddle/twitter-last-marker))
+
 (defun twaddle-timeline-pull-next ()
   "Pull the next tweets."
   (interactive)
@@ -428,6 +437,7 @@ This is mostly useful for debugging."
     (define-key map (kbd "RET") 'browse-url-at-point)
     (define-key map (kbd "TAB") 'twaddle-timeline-next-link)
     (define-key map (kbd "H") 'twaddle-timeline-home)
+    (define-key map (kbd " ") 'twaddle-timeline-last)
     (define-key map (kbd "S") 'twaddle-timeline-source)
     (define-key map (kbd "g") 'twaddle-timeline-pull-next)
     map)
@@ -440,6 +450,7 @@ This is mostly useful for debugging."
 \\{twaddle/timeline-mode-map}"
     (make-variable-buffer-local 'twaddle/twitter-result)
     (make-variable-buffer-local 'twaddle/twitter-timeline)
+    (make-variable-buffer-local 'twaddle/twitter-last-marker)
     (setq buffer-read-only t)
     (setq font-lock-defaults
           '((("\\(http\\(s\\)*://[^ ¶\n]+\\)" . 'link)
@@ -472,7 +483,7 @@ for more details.")
            (with-current-buffer since-buffer
              (cons "since-id"
                    (kva 'id_str (elt twaddle/twitter-result 0))))
-           ("count" . "30"))))
+           '("count" . "10"))))
    :method "GET"
    :oauth-token (kva "oauth_token" twaddle/auth-details)
    :oauth-token-secret (kva "oauth_token_secret" twaddle/auth-details)))
