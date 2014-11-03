@@ -437,7 +437,7 @@ This is mostly useful for debugging."
     (define-key map (kbd "RET") 'browse-url-at-point)
     (define-key map (kbd "TAB") 'twaddle-timeline-next-link)
     (define-key map (kbd "H") 'twaddle-timeline-home)
-    (define-key map (kbd " ") 'twaddle-timeline-last)
+    (define-key map (kbd "SPC") 'twaddle-timeline-last)
     (define-key map (kbd "S") 'twaddle-timeline-source)
     (define-key map (kbd "g") 'twaddle-timeline-pull-next)
     map)
@@ -513,6 +513,10 @@ for more details.")
 
 (defun twaddle ()
   (interactive)
-  (twaddle/status-get "home_timeline"))
+  (if (buffer-live-p (twaddle/get-twitter-buffer))
+      (with-current-buffer (twaddle/get-twitter-buffer)
+        (twaddle-pull-next))
+      ;; Else set it all up
+      (twaddle/status-get "home_timeline")))
 
 ;;; twaddle.el ends here
