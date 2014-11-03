@@ -1,9 +1,36 @@
 ;;; twaddle.el -- a sane twitter client -*- lexical-binding: t -*-
 
-(load "~/work/elnode-auth/elnode.el")
-(load "~/work/emacs-noflet/noflet.el")
-(load "~/work/shadchen-el/shadchen.el")
+;; Copyright (C) 2014  Nic Ferrier
 
+;; Author: Nic Ferrier <nferrier@ferrier.me.uk>
+;; Keywords: lisp
+;; Version: 0.0.1
+;; Url: https://github.com/nicferrier/emacs-twaddle
+;; Package-requires: ((web "0.5.1")(noflet "0.0.15")(elnode "0.9.9.8.8")(kv "0.0.19")(dash "2.9.0")(shadchen "1.4"))
+
+;; This program is free software; you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
+;; You should have received a copy of the GNU General Public License
+;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+;;; Commentary:
+
+;; A modern twitter client for Emacs.
+
+;; Twitter oauth stuff resources
+
+;; https://dev.twitter.com/web/sign-in/implementing
+;; https://apps.twitter.com/app/4519285/show - Nic's keys, presumably you can't see this.
+
+;;; Code:
 
 (require 'web)
 (require 'url-util) ; url-hexify-string
@@ -12,6 +39,8 @@
 (require 'elnode)
 (require 'kv)
 (require 'shadchen)
+(require 'eww)
+(require 'dash)
 
 (defun twaddle/log (str &rest vars)
   "Helps with debugging."
@@ -19,8 +48,8 @@
     (goto-char (point-max))
     (insert (apply 'format str vars) "\n")))
 
-(defconst twaddle-consumer-key  "jPzM4OZODLvdCSvsiCEPrg")
-(defconst twaddle-consumer-secret "PU2P33dfkyj1lguf2SZ71TcTVxulLUppReGHuk5aE8")
+
+;;; Wrap web to make a simpler client for twitter
 
 (cl-defun twaddle/web (handler url params
                                &key
@@ -47,10 +76,6 @@
          handler
          :url (concat url "?" (web-to-query-string params))
          :extra-headers hdrs :logging t))))
-
-;;; twitter oauth stuff resources
-;; https://dev.twitter.com/web/sign-in/implementing
-;; https://apps.twitter.com/app/4519285/show - my keys
 
 
 ;; This is lifted from here:
@@ -86,11 +111,13 @@ string.  Use the function `encode-hex-string' or the function
          (concat opad (sha1 (concat ipad message) nil nil t))
          nil nil t)))))
 
-(defconst twaddle-authorize-url	"https://api.twitter.com/oauth/authorize")
-(defconst twaddle-callback-url "http://nic.ferrier.me.uk/emacs-twaddle"
-  "This is defined in the app settings on twitter.
 
-It cannot be localhost so those tricks won't work.")
+;;; Twaddle OAuth
+
+(defconst twaddle-consumer-key  "jPzM4OZODLvdCSvsiCEPrg")
+(defconst twaddle-consumer-secret "PU2P33dfkyj1lguf2SZ71TcTVxulLUppReGHuk5aE8")
+
+(defconst twaddle-authorize-url	"https://api.twitter.com/oauth/authorize")
 
 (defun twaddle/timestamp () ; pinched from psandford's oauth.el
   (format "%d" (ftruncate (float-time (current-time)))))
@@ -236,12 +263,13 @@ The return value is the string OAuth header."
                             :oauth-timestamp oauth-timestamp
                             :oauth-nonce oauth-nonce))
 
-(defvar twaddle/auth-details nil)
+(defvar twaddle/auth-details nil
+  "Stores the twaddle auth details.")
 
 (defconst twaddle/access-token-url "https://api.twitter.com/oauth/access_token")
 
 (defun twaddle-callback-handler (httpcon)
-  "When OAUTH happens this gets called.
+  "Twaddle OAUTH callback handler.
 
 It fires off the access token confirmation request to twitter and
 then sends HTML back to eww."
@@ -282,11 +310,13 @@ then sends HTML back to eww."
     (twaddle/web 'twaddle/auth-handle url `(("oauth_callback" . ,callback)))))
 
 
-
 ;;; Timeline functions
 
 (defvar twaddle/twitter-result nil
-  "The last result from twitter.")
+  "A buffer-local of the last result from twitter.")
+
+(defvar twaddle/twitter-timeline nil
+  "A buffer-local for the timeline you're viewing.")
 
 (defun fill-string (str)
   (with-temp-buffer
@@ -302,6 +332,7 @@ then sends HTML back to eww."
     buf))
 
 (defun twaddle/text-munge (text)
+  "Do some basic conversions for text."
   (when text
     (let ((replacements '(("&amp;" . "&")
                           ("&lt;" . "<")
@@ -314,30 +345,41 @@ then sends HTML back to eww."
         decoded)))))
 
 (defun twaddle-timeline-source ()
+  "Display the source of the current twitter view.
+
+The JSON source is pretty printed into another buffer which is
+popped for you.
+
+This is mostly useful for debugging."
   (interactive)
   (let ((src twaddle/twitter-result))
     (with-current-buffer (get-buffer-create "*twaddle-twitter-source*")
       (insert (pp-to-string src))
       (pop-to-buffer (current-buffer)))))
 
-(defun twaddle/twitter-buffer (json)
+(defun twaddle/twitter-buffer (timeline json)
+  "Display the JSON for TIMELINE."
   (with-current-buffer (twaddle/get-twitter-buffer)
     (let ((buffer-read-only nil)
           (results (json-read-from-string json)))
       (setq twaddle/twitter-result results)
+      (setq twaddle/twitter-timeline timeline)
       (save-excursion
-        (erase-buffer)
+        (goto-char (point-min))
         (--each (append results nil)
-          (print it)
           (match it
-            ((alist 'text text 'user (alist 'screen_name username
-                                            'profile_image_url avatar-url))
+            ((alist 'text text
+                    'id_str tweet-id
+                    'user (alist 'screen_name username
+                                 'profile_image_url avatar-url))
              (insert
-              (s-format
-               "\n${text}¶\nː${user}\n"  ;; unicode here
-               'aget
-               `(("text" . ,(twaddle/text-munge text))
-                 ("user" . ,username))))
+              (propertize
+               (s-format
+                "\n${text}¶\nː${user}\n"  ;; unicode here
+                'aget
+                `(("text" . ,(twaddle/text-munge text))
+                  ("user" . ,username)))
+               :tweet-id tweet-id))
              (let ((img-insert (point-marker)))
                (web-http-get
                 (lambda (con hdr data)
@@ -360,6 +402,7 @@ then sends HTML back to eww."
     (pop-to-buffer (current-buffer))))
 
 (defun twaddle-timeline-next-link ()
+  "Move to the next link in the timeline view."
   (interactive)
   ;; letn is from noflet
   (letn seek ((pt (next-single-property-change (point) 'face)))
@@ -371,8 +414,14 @@ then sends HTML back to eww."
         (seek (next-single-property-change (point) 'face)))))
 
 (defun twaddle-timeline-home ()
+  "Move to the top of the timeline view."
   (interactive)
   (set-window-point (selected-window) (point-min)))
+
+(defun twaddle-timeline-pull-next ()
+  "Pull the next tweets."
+  (interactive)
+  (twaddle/status-get twaddle/twitter-timeline (current-buffer)))
 
 (defconst twaddle/timeline-mode-map
   (let ((map (make-keymap)))
@@ -380,6 +429,7 @@ then sends HTML back to eww."
     (define-key map (kbd "TAB") 'twaddle-timeline-next-link)
     (define-key map (kbd "H") 'twaddle-timeline-home)
     (define-key map (kbd "S") 'twaddle-timeline-source)
+    (define-key map (kbd "g") 'twaddle-timeline-pull-next)
     map)
   "The timeline mode map.")
 
@@ -389,6 +439,7 @@ then sends HTML back to eww."
 
 \\{twaddle/timeline-mode-map}"
     (make-variable-buffer-local 'twaddle/twitter-result)
+    (make-variable-buffer-local 'twaddle/twitter-timeline)
     (setq buffer-read-only t)
     (setq font-lock-defaults
           '((("\\(http\\(s\\)*://[^ ¶\n]+\\)" . 'link)
@@ -410,13 +461,35 @@ See
 `https://dev.twitter.com/rest/reference/get/statuses/mentions_timeline'
 for more details.")
 
-(defun twaddle/status-get (timeline)
+(defun twaddle/status-get (timeline &optional since-buffer)
   (twaddle/web
-   (lambda (con hdr data) (twaddle/twitter-buffer data))
+   (lambda (con hdr data) (twaddle/twitter-buffer timeline data))
    (format twaddle/twitter-status-home timeline)
-   `(("screen_name" . ,(kva "screen_name" twaddle/auth-details))
-     ("count" . "30"))
+   (-filter
+    #'identity
+    `(("screen_name" . ,(kva "screen_name" twaddle/auth-details))
+      ,(if since-buffer
+           (with-current-buffer since-buffer
+             (cons "since-id"
+                   (kva 'id_str (elt twaddle/twitter-result 0))))
+           ("count" . "30"))))
    :method "GET"
+   :oauth-token (kva "oauth_token" twaddle/auth-details)
+   :oauth-token-secret (kva "oauth_token_secret" twaddle/auth-details)))
+
+(defconst twaddle/twitter-update "https://api.twitter.com/1.1/statuses/update.json"
+  "The update URL.")
+
+(defun twaddle-post (status &optional reply)
+  (interactive (list (read-from-minibuffer "Status: ")))
+  (twaddle/web
+   (lambda (con hdr data)
+     (with-current-buffer (get-buffer-create "*twaddle-update*")
+       (goto-char (point-min))
+       (insert (format "%S" data))
+       (pop-to-buffer (current-buffer))))
+   twaddle/twitter-update
+   `(("status" . ,status))
    :oauth-token (kva "oauth_token" twaddle/auth-details)
    :oauth-token-secret (kva "oauth_token_secret" twaddle/auth-details)))
 
