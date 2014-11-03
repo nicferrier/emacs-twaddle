@@ -6,7 +6,7 @@
 ;; Keywords: lisp
 ;; Version: 0.0.1
 ;; Url: https://github.com/nicferrier/emacs-twaddle
-;; Package-requires: ((web "0.5.1")(noflet "0.0.15")(elnode "0.9.9.8.8")(kv "0.0.19")(dash "2.9.0")(shadchen "1.4"))
+;; Package-requires: ((kv "0.0.19")(dash "2.9.0")(shadchen "1.4")(noflet "0.0.15")(web "0.5.1")(elnode "0.9.9.8.8"))
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
