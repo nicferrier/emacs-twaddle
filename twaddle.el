@@ -1,4 +1,4 @@
-;;; twaddle.el -- a sane twitter client -*- lexical-binding: t -*-
+;;; twaddle.el --- a sane twitter client -*- lexical-binding: t -*-
 
 ;; Copyright (C) 2014  Nic Ferrier
 
