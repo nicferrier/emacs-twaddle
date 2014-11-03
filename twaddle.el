@@ -504,6 +504,7 @@ for more details.")
    :oauth-token (kva "oauth_token" twaddle/auth-details)
    :oauth-token-secret (kva "oauth_token_secret" twaddle/auth-details)))
 
+;;;###autoload
 (defun twaddle-init ()
   (interactive)
   ;; we start elnode to collect the callback
