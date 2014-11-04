@@ -334,7 +334,7 @@ then sends HTML back to eww."
         (twaddle-timeline-mode)))
     buf))
 
-(defun twaddle/text-munge (text)
+(defun twaddle/text-munge (text urls)
   "Do some basic conversions for text."
   (when text
     (let ((replacements '(("&amp;" . "&")
@@ -342,23 +342,54 @@ then sends HTML back to eww."
                           ("&gt;" . ">")))
           (decoded (decode-coding-string text 'utf-8)))
       (fill-string
-       (replace-regexp-in-string
-        "&amp;\\|&lt;\\|&gt;"
-        (lambda (s) (kva s replacements))
-        decoded)))))
+       (if (and (vectorp urls) (> (length urls) 0))
+           (let* ((url-alist (elt urls 0))
+                  (replacement (kva 'expanded_url url-alist))
+                  (src (kva 'url url-alist)))
+             (replace-regexp-in-string
+              src replacement
+              (replace-regexp-in-string
+               src replacement
+               (replace-regexp-in-string
+                "&amp;\\|&lt;\\|&gt;"
+                (lambda (s) (kva s replacements))
+                decoded))))
+           ;; Else
+           (replace-regexp-in-string
+            "&amp;\\|&lt;\\|&gt;"
+            (lambda (s) (kva s replacements))
+            decoded))))))
 
-(defun twaddle-timeline-source ()
-  "Display the source of the current twitter view.
+(defun twaddle/avatar-get (marker username avatar-url)
+  "Get the AVATAR-URL for USERNAME and insert at MARKER."
+  (web-http-get
+   (lambda (con hdr data)
+     (with-current-buffer (marker-buffer marker)
+       (save-excursion
+         (goto-char marker)
+         (forward-line -1)
+         (goto-char (line-beginning-position))
+         (let ((buffer-read-only nil))
+           (insert-image
+            (create-image
+             (string-as-unibyte data)
+             (kva (file-name-extension avatar-url)
+                  '(("png" . png)
+                    ("jpg" . jpeg)
+                    ("jpeg" . jpeg)
+                    ("gif" . 'gif))) t))
+           (insert "  ")))))
+   :url avatar-url))
 
-The JSON source is pretty printed into another buffer which is
-popped for you.
-
-This is mostly useful for debugging."
-  (interactive)
-  (let ((src twaddle/twitter-result))
-    (with-current-buffer (get-buffer-create "*twaddle-twitter-source*")
-      (insert (pp-to-string src))
-      (pop-to-buffer (current-buffer)))))
+(defun twaddle/insert-entry (tweet-id username avatar-url text urls-vector)
+  (insert
+   (s-format
+    "\n${text}¶\nː${user}\n" ;; unicode here
+    'aget
+    `(("text" . ,(twaddle/text-munge
+                  (propertize text :tweet-id tweet-id) urls-vector))
+      ("user" . ,username))))
+  (twaddle/avatar-get (point-marker) username avatar-url))
 
 (defun twaddle/twitter-buffer (timeline json)
   "Display the JSON for TIMELINE."
@@ -375,36 +406,32 @@ This is mostly useful for debugging."
           (match it
             ((alist 'text text
                     'id_str tweet-id
+                    'retweeted_status (alist 'id_str (? 'stringp rt_id_str)
+                                             'text text) ; pull the origin text
+                    'entities (alist 'urls urls-vec)
                     'user (alist 'screen_name username
                                  'profile_image_url avatar-url))
-             (insert
-              (propertize
-               (s-format
-                "\n${text}¶\nː${user}\n"  ;; unicode here
-                'aget
-                `(("text" . ,(twaddle/text-munge text))
-                  ("user" . ,username)))
-               :tweet-id tweet-id))
-             (let ((img-insert (point-marker)))
-               (web-http-get
-                (lambda (con hdr data)
-                  (with-current-buffer (get-buffer "*twaddle-twitter*")
-                    (save-excursion
-                      (goto-char img-insert)
-                      (forward-line -1)
-                      (goto-char (line-beginning-position))
-                      (let ((buffer-read-only nil))
-                        (insert-image
-                         (create-image
-                          (string-as-unibyte data)
-                          (kva (file-name-extension avatar-url)
-                               '(("png" . png)
-                                 ("jpg" . jpeg)
-                                 ("jpeg" . jpeg)
-                                 ("gif" . 'gif))) t))
-                        (insert "  ")))))
-                :url avatar-url)))))))
+             (twaddle/insert-entry tweet-id username avatar-url text urls-vec))
+            ((alist 'text text
+                    'id_str tweet-id
+                    'entities (alist 'urls urls-vec)
+                    'user (alist 'screen_name username
+                                 'profile_image_url avatar-url))
+             (twaddle/insert-entry tweet-id username avatar-url text urls-vec))))))
     (pop-to-buffer (current-buffer))))
+
+(defun twaddle-timeline-source ()
+  "Display the source of the current twitter view.
+
+The JSON source is pretty printed into another buffer which is
+popped for you.
+
+This is mostly useful for debugging."
+  (interactive)
+  (let ((src twaddle/twitter-result))
+    (with-current-buffer (get-buffer-create "*twaddle-twitter-source*")
+      (insert (pp-to-string src))
+      (pop-to-buffer (current-buffer)))))
 
 (defun twaddle-timeline-next-link ()
   "Move to the next link in the timeline view."
