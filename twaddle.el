@@ -281,7 +281,10 @@ then sends HTML back to eww."
     (twaddle/web
      (lambda (con hdr data)
        (let ((alist (elnode-http-query-to-alist data)))
-         (setq twaddle/auth-details alist)))
+         ;; Save the auth data
+         (setq twaddle/auth-details alist)
+         ;; Show the timeline
+         (twaddle/status-get "home_timeline")))
      twaddle/access-token-url `(("oauth_verifier" . ,verifier))
      :oauth-token oauth-token)
     (elnode-send-html
@@ -295,18 +298,22 @@ then sends HTML back to eww."
     (200
      (let ((oauth-resp (url-parse-query-string data)))
        (twaddle/log "%s %S %s" con oauth-resp data)
-       (eww
+       (browse-url-elinks
         (format
          "https://api.twitter.com/oauth/authenticate?oauth_token=%s"
          (cadr (assoc "oauth_token" oauth-resp))))))
     (401 
      (twaddle/log "%S %s" (kvhash->alist hdr) data))))
 
+
 (defconst twaddle-request-token-url "https://api.twitter.com/oauth/request_token")
+
+(defvar twaddle-auth-server-port 8091
+  "The port we use for twaddle's elnode oauth callback.")
 
 (defun twaddle/auth-start ()
   (let ((url twaddle-request-token-url)
-        (callback "http://localhost:8091/emacs_twaddle"))
+        (callback (format "http://localhost:%d/emacs_twaddle" twaddle-auth-server-port)))
     (twaddle/web 'twaddle/auth-handle url `(("oauth_callback" . ,callback)))))
 
 
@@ -532,18 +539,23 @@ for more details.")
    :oauth-token-secret (kva "oauth_token_secret" twaddle/auth-details)))
 
 ;;;###autoload
-(defun twaddle-init ()
+(defun twaddle-init (auth-browser-function)
+  "Initialize twaddle with Oauth to twitter.
+
+You must supply a browser function to use to complete the oauth "
   (interactive)
   ;; we start elnode to collect the callback
-  (elnode-start 'twaddle-callback-handler :port 8091)
+  (elnode-start 'twaddle-callback-handler :port twaddle-auth-server-port)
   (twaddle/auth-start))
 
 (defun twaddle ()
   (interactive)
   (if (buffer-live-p (twaddle/get-twitter-buffer))
       (with-current-buffer (twaddle/get-twitter-buffer)
-        (twaddle-pull-next))
+        (twaddle-timeline-pull-next))
       ;; Else set it all up
       (twaddle/status-get "home_timeline")))
+
+(provide 'twaddle)
 
 ;;; twaddle.el ends here
