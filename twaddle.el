@@ -475,6 +475,7 @@ This is mostly useful for debugging."
     (define-key map (kbd "SPC") 'twaddle-timeline-last)
     (define-key map (kbd "S") 'twaddle-timeline-source)
     (define-key map (kbd "g") 'twaddle-timeline-pull-next)
+    (define-key map (kbd "n") 'twaddle-post)
     map)
   "The timeline mode map.")
 
@@ -542,6 +543,7 @@ for more details.")
    `(("status" . ,status))
    :oauth-token (kva "oauth_token" twaddle/auth-details)
    :oauth-token-secret (kva "oauth_token_secret" twaddle/auth-details)))
+
 
 (defun twaddle/find-syms (prefix-str)
   (let ((no-private t) res)
