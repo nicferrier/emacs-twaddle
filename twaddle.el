@@ -422,12 +422,13 @@ then sends HTML back to eww."
 
 (defun twaddle/insert-entry (tweet-id username avatar-url text urls-vector media-url)
   (insert
-   (s-format
-    "\n${text}¶\nː${user}\n" ;; unicode here
-    'aget
-    `(("text" . ,(twaddle/text-munge
-                  (propertize text :tweet-id tweet-id) urls-vector))
-      ("user" . ,username))))
+   (propertize 
+    (s-format
+     "\n${text}¶\nː${user}\n" ;; unicode here
+     'aget
+     `(("text" . ,(twaddle/text-munge text urls-vector))
+       ("user" . ,username)))
+    :tweet-id tweet-id))
   (twaddle/avatar-get (point-marker) username avatar-url)
   (when media-url
     (twaddle/media-get (point-marker) media-url)))
