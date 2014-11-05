@@ -476,14 +476,24 @@ This is mostly useful for debugging."
 (defun twaddle-timeline-next-link ()
   "Move to the next link in the timeline view."
   (interactive)
-  ;; letn is from noflet
-  (letn seek ((pt (next-single-property-change (point) 'face)))
+  (match-let ((pt (next-single-property-change (point) 'face)))
     (if pt
         (if (eq (get-text-property pt 'face) 'link)
             (goto-char pt)
-            (seek (next-single-property-change pt 'face)))
+            (recur (next-single-property-change pt 'face)))
         (goto-char (point-min))
-        (seek (next-single-property-change (point) 'face)))))
+        (recur (next-single-property-change (point) 'face)))))
+
+(defun twaddle-timeline-prev-link ()
+  "Move to the next link in the timeline view."
+  (interactive)
+  (match-let ((pt (previous-single-property-change (point) 'face)))
+    (if pt
+        (if (eq (get-text-property pt 'face) 'link)
+            (goto-char pt)
+            (recur (previous-single-property-change pt 'face)))
+        (goto-char (point-max))
+        (recur (previous-single-property-change (point) 'face)))))
 
 (defun twaddle-timeline-home ()
   "Move to the top of the timeline view."
@@ -499,15 +509,22 @@ This is mostly useful for debugging."
   (interactive)
   (twaddle/status-get twaddle/twitter-timeline (current-buffer)))
 
+(defun twaddle-timeline-eww ()
+  "Browse the url at point with Eww."
+  (interactive)
+  (eww (thing-at-point-url-at-point)))
+
 (defconst twaddle/timeline-mode-map
   (let ((map (make-keymap)))
     (define-key map (kbd "RET") 'browse-url-at-point)
     (define-key map (kbd "TAB") 'twaddle-timeline-next-link)
+    (define-key map (kbd "<backtab>") 'twaddle-timeline-prev-link)
     (define-key map (kbd "H") 'twaddle-timeline-home)
     (define-key map (kbd "SPC") 'twaddle-timeline-last)
     (define-key map (kbd "S") 'twaddle-timeline-source)
     (define-key map (kbd "g") 'twaddle-timeline-pull-next)
-    (define-key map (kbd "n") 'twaddle-post)
+    (define-key map (kbd "n") 'twaddle-post-status)
+    (define-key map (kbd "e") 'twaddle-timeline-eww)
     map)
   "The timeline mode map.")
 
@@ -563,14 +580,14 @@ for more details.")
 (defconst twaddle/twitter-update "https://api.twitter.com/1.1/statuses/update.json"
   "The update URL.")
 
-(defun twaddle-post (status &optional reply)
+(defun twaddle-post-status (status &optional reply)
   (interactive (list (read-from-minibuffer "Status: ")))
   (twaddle/web
    (lambda (con hdr data)
      (with-current-buffer (get-buffer-create "*twaddle-update*")
        (goto-char (point-min))
-       (insert (format "%S" data))
-       (pop-to-buffer (current-buffer))))
+       (insert (format "%S\n\n" data))
+       (message "twaddle updated your twitter.")))
    twaddle/twitter-update
    `(("status" . ,status))
    :oauth-token (kva "oauth_token" twaddle/auth-details)
