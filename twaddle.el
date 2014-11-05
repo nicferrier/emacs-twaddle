@@ -6,7 +6,7 @@
 ;; Keywords: lisp
 ;; Version: 0.0.1
 ;; Url: https://github.com/nicferrier/emacs-twaddle
-;; Package-requires: ((kv "0.0.19")(dash "2.9.0")(shadchen "1.4")(noflet "0.0.15")(web "0.5.1")(elnode "0.9.9.8.8"))
+;; Package-requires: ((kv "0.0.19")(dash "2.9.0")(shadchen "1.4")(web "0.5.1")(elnode "0.9.9.8.8"))
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -25,6 +25,14 @@
 
 ;; A modern twitter client for Emacs.
 
+;; Features:
+
+;; * twiiter oauth
+;; * display of media and avatars
+;; * understands RTs
+;; * posting
+;; * remember your position in the feed when pulling new tweets
+
 ;; Twitter oauth stuff resources
 
 ;; https://dev.twitter.com/web/sign-in/implementing
@@ -35,8 +43,7 @@
 (require 'web)
 (require 'url-util) ; url-hexify-string
 (require 'cl-lib)
-(require 'noflet)
-(require 'elnode)
+(require 'elnode) ; for a server that oauth can callback to
 (require 'kv)
 (require 'shadchen)
 (require 'eww)
@@ -227,6 +234,8 @@ Whcih normally you destructure with some matching let like
      (twaddle/log "%S" (cdr oauth-header-cons))
      oauth-header-cons)))
 
+;; We use this proxy function so that we can debug and translate and
+;; generally control the underlying implementation function.
 (cl-defun twaddle/oauth1-header (url
                                  &key
                                  http-params
@@ -630,6 +639,9 @@ You must supply a browser function to use to complete the oauth "
   (twaddle/auth-start (intern auth-browser-function)))
 
 (defun twaddle ()
+  "Open or update the home timeline in twitter.
+
+\\{twaddle-timeline-mode-map}"
   (interactive)
   (if (buffer-live-p (twaddle/get-twitter-buffer))
       (with-current-buffer (twaddle/get-twitter-buffer)
