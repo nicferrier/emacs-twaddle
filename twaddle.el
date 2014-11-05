@@ -451,7 +451,9 @@ then sends HTML back to eww."
                                               (alist 'media_url media-url)))                    
                     'user (alist 'screen_name username
                                  'profile_image_url avatar-url))
-             (twaddle/insert-entry tweet-id username avatar-url text urls-vec media-url))
+             (twaddle/insert-entry tweet-id username
+                                   avatar-url (concat "RT " text)
+                                   urls-vec media-url))
             ((alist 'text text
                     'id_str tweet-id
                     'entities (alist 'urls urls-vec
