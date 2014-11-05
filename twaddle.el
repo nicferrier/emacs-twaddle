@@ -369,6 +369,27 @@ then sends HTML back to eww."
             (lambda (s) (kva s replacements))
             decoded))))))
 
+(defun twaddle/media-get (marker avatar-url)
+  "Get the MEDIA-URL and insert at MARKER."
+  (web-http-get
+   (lambda (con hdr data)
+     (with-current-buffer (marker-buffer marker)
+       (save-excursion
+         (goto-char marker)
+         (forward-line -1)
+         (goto-char (line-beginning-position))
+         (let ((buffer-read-only nil))
+           (insert-image
+            (create-image
+             (string-as-unibyte data)
+             (kva (file-name-extension avatar-url)
+                  '(("png" . png)
+                    ("jpg" . jpeg)
+                    ("jpeg" . jpeg)
+                    ("gif" . 'gif))) t))
+           (insert "  ")))))
+   :url avatar-url))
+
 (defun twaddle/avatar-get (marker username avatar-url)
   "Get the AVATAR-URL for USERNAME and insert at MARKER."
   (web-http-get
@@ -390,7 +411,7 @@ then sends HTML back to eww."
            (insert "  ")))))
    :url avatar-url))
 
-(defun twaddle/insert-entry (tweet-id username avatar-url text urls-vector)
+(defun twaddle/insert-entry (tweet-id username avatar-url text urls-vector media-url)
   (insert
    (s-format
     "\n${text}¶\nː${user}\n" ;; unicode here
@@ -398,7 +419,14 @@ then sends HTML back to eww."
     `(("text" . ,(twaddle/text-munge
                   (propertize text :tweet-id tweet-id) urls-vector))
       ("user" . ,username))))
-  (twaddle/avatar-get (point-marker) username avatar-url))
+  (twaddle/avatar-get (point-marker) username avatar-url)
+  (when media-url
+    (twaddle/media-get (point-marker) media-url)))
+
+(defun safe-aref (v i)
+  (when (and (> (length v) 0)
+             (< i (length v)))
+    (aref v i)))
 
 (defun twaddle/twitter-buffer (timeline json)
   "Display the JSON for TIMELINE."
@@ -417,16 +445,22 @@ then sends HTML back to eww."
                     'id_str tweet-id
                     'retweeted_status (alist 'id_str (? 'stringp rt_id_str)
                                              'text text) ; pull the origin text
-                    'entities (alist 'urls urls-vec)
+                    'entities (alist 'urls urls-vec
+                                     'media
+                                     (funcall (lambda (v)(safe-aref v 0))
+                                              (alist 'media_url media-url)))                    
                     'user (alist 'screen_name username
                                  'profile_image_url avatar-url))
-             (twaddle/insert-entry tweet-id username avatar-url text urls-vec))
+             (twaddle/insert-entry tweet-id username avatar-url text urls-vec media-url))
             ((alist 'text text
                     'id_str tweet-id
-                    'entities (alist 'urls urls-vec)
+                    'entities (alist 'urls urls-vec
+                                     'media
+                                     (funcall (lambda (v)(safe-aref v 0))
+                                              (alist 'media_url media-url)))
                     'user (alist 'screen_name username
                                  'profile_image_url avatar-url))
-             (twaddle/insert-entry tweet-id username avatar-url text urls-vec))))))
+             (twaddle/insert-entry tweet-id username avatar-url text urls-vec media-url))))))
     (pop-to-buffer (current-buffer))))
 
 (defun twaddle-timeline-source ()
