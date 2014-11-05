@@ -543,15 +543,40 @@ for more details.")
    :oauth-token (kva "oauth_token" twaddle/auth-details)
    :oauth-token-secret (kva "oauth_token_secret" twaddle/auth-details)))
 
+(defun twaddle/find-syms (prefix-str)
+  (let ((no-private t) res)
+    (mapatoms
+     (lambda (atom)
+       (let ((sn (symbol-name atom)))
+         (and (fboundp atom)
+              (if (string-prefix-p prefix-str sn)
+                  (if no-private
+                      (if (not (string-match "[^-]+--.*" sn))
+                          (setq res (cons atom res)))
+                      (setq res (cons atom res)))))))
+     obarray)
+    res))
+
+
+;; sketch of how to sign into twitter privately
+(defun browse-url-firefox-private (url &optional new-win)
+  (interactive (browse-url-interactive-arg "URL: "))
+  (let* ((existing-args (copy-list browse-url-firefox-arguments))
+         (browse-url-firefox-arguments (cons "-private-window" existing-args)))
+    (browse-url-firefox url)))
+
 ;;;###autoload
 (defun twaddle-init (auth-browser-function)
   "Initialize twaddle with Oauth to twitter.
 
 You must supply a browser function to use to complete the oauth "
-  (interactive)
+  (interactive
+   (list (completing-read
+          "Oauth browse-url function (not eww): "
+          (twaddle/find-syms "browse-url"))))
   ;; we start elnode to collect the callback
   (elnode-start 'twaddle-callback-handler :port twaddle-auth-server-port)
-  (twaddle/auth-start))
+  (twaddle/auth-start (intern auth-browser-function)))
 
 (defun twaddle ()
   (interactive)
