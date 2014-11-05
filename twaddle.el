@@ -387,7 +387,7 @@ then sends HTML back to eww."
                     ("jpg" . jpeg)
                     ("jpeg" . jpeg)
                     ("gif" . 'gif))) t))
-           (insert "  ")))))
+           (insert "\n")))))
    :url avatar-url))
 
 (defun twaddle/avatar-get (marker username avatar-url)
