@@ -293,28 +293,29 @@ then sends HTML back to eww."
       "<h1>thanks! twaddle should be working in your emacs now!</h1><pre>%S</pre>"
       (list verifier oauth-token)))))
 
-(defun twaddle/auth-handle (con hdr data)
-  (case (string-to-int (gethash 'status-code hdr))
-    (200
-     (let ((oauth-resp (url-parse-query-string data)))
-       (twaddle/log "%s %S %s" con oauth-resp data)
-       (browse-url-elinks
-        (format
-         "https://api.twitter.com/oauth/authenticate?oauth_token=%s"
-         (cadr (assoc "oauth_token" oauth-resp))))))
-    (401 
-     (twaddle/log "%S %s" (kvhash->alist hdr) data))))
-
 
 (defconst twaddle-request-token-url "https://api.twitter.com/oauth/request_token")
 
 (defvar twaddle-auth-server-port 8091
   "The port we use for twaddle's elnode oauth callback.")
 
-(defun twaddle/auth-start ()
+(defun twaddle/auth-start (browse-function)
   (let ((url twaddle-request-token-url)
+        (browser browse-function)
         (callback (format "http://localhost:%d/emacs_twaddle" twaddle-auth-server-port)))
-    (twaddle/web 'twaddle/auth-handle url `(("oauth_callback" . ,callback)))))
+    (twaddle/web
+     (lambda (con hdr data)
+       (case (string-to-int (gethash 'status-code hdr))
+         (200
+          (let ((oauth-resp (url-parse-query-string data)))
+            (twaddle/log "%s %S %s" con oauth-resp data)
+            (funcall browser
+                     (format
+                      "https://api.twitter.com/oauth/authenticate?oauth_token=%s"
+                      (cadr (assoc "oauth_token" oauth-resp))))))
+         (401 
+          (twaddle/log "%S %s" (kvhash->alist hdr) data))))
+     url `(("oauth_callback" . ,callback)))))
 
 
 ;;; Timeline functions
@@ -506,21 +507,25 @@ See
 `https://dev.twitter.com/rest/reference/get/statuses/mentions_timeline'
 for more details.")
 
-(defun twaddle/status-get (timeline &optional since-buffer)
-  (twaddle/web
-   (lambda (con hdr data) (twaddle/twitter-buffer timeline data))
-   (format twaddle/twitter-status-home timeline)
-   (-filter
-    #'identity
-    `(("screen_name" . ,(kva "screen_name" twaddle/auth-details))
-      ,(if since-buffer
-           (with-current-buffer since-buffer
-             (cons "since-id"
-                   (kva 'id_str (elt twaddle/twitter-result 0))))
-           '("count" . "10"))))
-   :method "GET"
-   :oauth-token (kva "oauth_token" twaddle/auth-details)
-   :oauth-token-secret (kva "oauth_token_secret" twaddle/auth-details)))
+(defun twaddle/status-get (timeline-name &optional since-buffer)
+  (if (equal twaddle/auth-details '(("Invalid request token")))
+      (error "Use twaddle-init for oauth init.")
+      ;; Else ...
+      (let ((timeline (or timeline-name "home_timeline")))
+        (twaddle/web
+         (lambda (con hdr data) (twaddle/twitter-buffer timeline data))
+         (format twaddle/twitter-status-home timeline)
+         (-filter
+          #'identity
+          `(("screen_name" . ,(kva "screen_name" twaddle/auth-details))
+            ,(if since-buffer
+                 (with-current-buffer since-buffer
+                   (cons "since-id"
+                         (kva 'id_str (elt twaddle/twitter-result 0))))
+                 '("count" . "10"))))
+         :method "GET"
+         :oauth-token (kva "oauth_token" twaddle/auth-details)
+         :oauth-token-secret (kva "oauth_token_secret" twaddle/auth-details)))))
 
 (defconst twaddle/twitter-update "https://api.twitter.com/1.1/statuses/update.json"
   "The update URL.")
