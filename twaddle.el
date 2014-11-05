@@ -423,11 +423,6 @@ then sends HTML back to eww."
   (when media-url
     (twaddle/media-get (point-marker) media-url)))
 
-(defun safe-aref (v i)
-  (when (and (> (length v) 0)
-             (< i (length v)))
-    (aref v i)))
-
 (defun twaddle/twitter-buffer (timeline json)
   "Display the JSON for TIMELINE."
   (with-current-buffer (twaddle/get-twitter-buffer)
@@ -447,7 +442,7 @@ then sends HTML back to eww."
                                              'text text) ; pull the origin text
                     'entities (alist 'urls urls-vec
                                      'media
-                                     (funcall (lambda (v)(safe-aref v 0))
+                                     (funcall (lambda (v)(ignore-errors (aref v 0)))
                                               (alist 'media_url media-url)))                    
                     'user (alist 'screen_name username
                                  'profile_image_url avatar-url))
@@ -458,7 +453,7 @@ then sends HTML back to eww."
                     'id_str tweet-id
                     'entities (alist 'urls urls-vec
                                      'media
-                                     (funcall (lambda (v)(safe-aref v 0))
+                                     (funcall (lambda (v)(ignore-errors (aref v 0)))
                                               (alist 'media_url media-url)))
                     'user (alist 'screen_name username
                                  'profile_image_url avatar-url))
