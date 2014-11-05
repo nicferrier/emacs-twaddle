@@ -41,6 +41,7 @@
 (require 'shadchen)
 (require 'eww)
 (require 'dash)
+(require 'browse-url)
 
 (defun twaddle/log (str &rest vars)
   "Helps with debugging."
