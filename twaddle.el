@@ -277,6 +277,7 @@ The return value is the string OAuth header."
   "Stores the twaddle auth details.")
 
 (defconst twaddle/access-token-url "https://api.twitter.com/oauth/access_token")
+(defconst twaddle/post-access-timeline "home_timeline")
 
 (defun twaddle-callback-handler (httpcon)
   "Twaddle OAUTH callback handler.
@@ -294,7 +295,7 @@ then sends HTML back to eww."
          ;; Save the auth data
          (setq twaddle/auth-details alist)
          ;; Show the timeline
-         (twaddle/status-get "home_timeline")))
+         (twaddle/status-get twaddle/post-access-timeline)))
      twaddle/access-token-url `(("oauth_verifier" . ,verifier))
      :oauth-token oauth-token)
     (elnode-send-html
@@ -345,10 +346,11 @@ then sends HTML back to eww."
     (fill-paragraph)
     (buffer-string)))
 
-(defun twaddle/get-twitter-buffer ()
-  (let ((buf (get-buffer "*twaddle-twitter*")))
+(defun twaddle/get-twitter-buffer (screen-name timeline)
+  (let* ((name (format "*twaddle-%s-%s*" screen-name timeline))
+         (buf (get-buffer name)))
     (unless buf
-      (with-current-buffer (setq buf (get-buffer-create "*twaddle-twitter*"))
+      (with-current-buffer (setq buf (get-buffer-create name))
         (twaddle-timeline-mode)))
     buf))
 
@@ -433,9 +435,9 @@ then sends HTML back to eww."
   (when media-url
     (twaddle/media-get (point-marker) media-url)))
 
-(defun twaddle/twitter-buffer (timeline json)
+(defun twaddle/twitter-buffer (screen-name timeline json)
   "Display the JSON for TIMELINE."
-  (with-current-buffer (twaddle/get-twitter-buffer)
+  (with-current-buffer (twaddle/get-twitter-buffer screen-name timeline)
     (let ((buffer-read-only nil)
           (results (json-read-from-string json)))
       (setq twaddle/twitter-result results)
@@ -483,32 +485,72 @@ This is mostly useful for debugging."
       (insert (pp-to-string src))
       (pop-to-buffer (current-buffer)))))
 
+(defmacro twaddle/find-property (property test-expr &optional prev)
+  "Macro to make finding a property with a specific value easier.
+
+PROPERTY is the property to search.  TEST-EXPR is a partial Lisp
+expression to test the property for.
+
+Eg:
+
+  (twaddle/find-property 'face (eq 'link))
+
+will find a `face' property with the value `link'.
+
+PREV can be used to search backwards otherwise the search if
+forwards.  The search wraps round either backwards or forwards."
+  (let ((prevp (make-symbol "prevp"))
+        (fn (make-symbol "fn")))
+    `(save-excursion
+       (let* ((,prevp ,prev)
+              (,fn (if ,prevp
+                       'previous-single-property-change
+                       'next-single-property-change)))
+         (match-let ((pt (funcall ,fn (point) ,property)))
+           (if pt
+               (if ,(append test-expr `((get-text-property pt ,property)))
+                   pt
+                   (recur (funcall ,fn pt ,property)))
+               ;; Else start from the top
+               :done))))))
+
+(defun twaddle/find-tweet (tweet-id)
+  )
+
+(defun twaddle-timeline-prev-link ()
+  "Move to the prev link in the timeline view."
+  (interactive)
+  (let* ((value (twaddle/find-property 'face (eq 'link) t)))
+    (if (eq value :done)
+        (progn
+          (goto-char (point-max))
+          (twaddle-timeline-prev-link))
+        (goto-char value))))
+
 (defun twaddle-timeline-next-link ()
   "Move to the next link in the timeline view."
   (interactive)
-  (match-let ((pt (next-single-property-change (point) 'face)))
-    (if pt
-        (if (eq (get-text-property pt 'face) 'link)
-            (goto-char pt)
-            (recur (next-single-property-change pt 'face)))
-        (goto-char (point-min))
-        (recur (next-single-property-change (point) 'face)))))
-
-(defun twaddle-timeline-prev-link ()
-  "Move to the next link in the timeline view."
-  (interactive)
-  (match-let ((pt (previous-single-property-change (point) 'face)))
-    (if pt
-        (if (eq (get-text-property pt 'face) 'link)
-            (goto-char pt)
-            (recur (previous-single-property-change pt 'face)))
-        (goto-char (point-max))
-        (recur (previous-single-property-change (point) 'face)))))
+  (let* ((value (twaddle/find-property 'face (eq 'link))))
+    (if (eq value :done)
+        (progn
+          (goto-char (point-min))
+          (twaddle-timeline-next-link))
+        (goto-char value))))
 
 (defun twaddle-timeline-home ()
   "Move to the top of the timeline view."
   (interactive)
   (set-window-point (selected-window) (point-min)))
+
+(defun twaddle-timeline-homepage ()
+  "Get the home-timeline."
+  (interactive)
+  (twaddle))
+
+(defun twaddle-timeline-mentions ()
+  "Get the mentions timeline."
+  (interactive)
+  (twaddle "mentions_timeline"))
 
 (defun twaddle-timeline-last ()
   (interactive)
@@ -535,6 +577,8 @@ This is mostly useful for debugging."
     (define-key map (kbd "g") 'twaddle-timeline-pull-next)
     (define-key map (kbd "n") 'twaddle-post-status)
     (define-key map (kbd "e") 'twaddle-timeline-eww)
+    (define-key map (kbd "m") 'twaddle-timeline-mentions)
+    (define-key map (kbd "h") 'twaddle-timeline-homepage)
     map)
   "The timeline mode map.")
 
@@ -571,18 +615,20 @@ for more details.")
   (if (equal twaddle/auth-details '(("Invalid request token")))
       (error "Use twaddle-init for oauth init.")
       ;; Else ...
-      (let ((timeline (or timeline-name "home_timeline")))
+      (let ((timeline (or timeline-name "mentions_timeline"))
+            (screen-name (kva "screen_name" twaddle/auth-details)))
         (twaddle/web
-         (lambda (con hdr data) (twaddle/twitter-buffer timeline data))
+         (lambda (con hdr data)
+           (twaddle/twitter-buffer screen-name timeline data))
          (format twaddle/twitter-status-home timeline)
          (-filter
           #'identity
-          `(("screen_name" . ,(kva "screen_name" twaddle/auth-details))
-            ,(if since-buffer
-                 (with-current-buffer since-buffer
-                   (cons "since-id"
-                         (kva 'id_str (elt twaddle/twitter-result 0))))
-                 '("count" . "10"))))
+          `(("screen_name" . ,screen-name)
+            ,(let ((since-id (kva 'id_str (elt twaddle/twitter-result 0))))
+                  (if (and (numberp since-id) (buffer-live-p since-buffer))
+                      (with-current-buffer since-buffer
+                        (cons "since-id" since-id))
+                      '("count" . "10")))))
          :method "GET"
          :oauth-token (kva "oauth_token" twaddle/auth-details)
          :oauth-token-secret (kva "oauth_token_secret" twaddle/auth-details)))))
@@ -603,6 +649,31 @@ for more details.")
    :oauth-token (kva "oauth_token" twaddle/auth-details)
    :oauth-token-secret (kva "oauth_token_secret" twaddle/auth-details)))
 
+(defconst twaddle/twitter-rt "https://api.twitter.com/1.1/statuses/retweet/%s.json")
+
+(defun twaddle-retweet (tweet-id buffer)
+  (interactive
+   (list (get-text-property (point) :tweet-id)
+         (current-buffer)))
+  (twaddle/web
+   (lambda (con hdr data)
+     (with-current-buffer (get-buffer-create "*twaddle-update*")
+       (goto-char (point-min))
+       (insert (format "%S\n\n" data))
+       (message "twaddle updated your twitter."))
+     (with-current-buffer buffer
+       (save-excursion
+         (goto-char (point-min))
+         (match (twaddle/find-property 'tweet-id (equal tweet-id))
+           (:done (error "twaddle couldn't find the tweet %s" tweet-id))
+           ((? numberp pt) (progn
+                             (goto-char pt)
+                             (goto-char (line-beginning-position))
+                             (insert "! ")))))))
+   (format twaddle/twitter-rt tweet-id)
+   nil
+   :oauth-token (kva "oauth_token" twaddle/auth-details)
+   :oauth-token-secret (kva "oauth_token_secret" twaddle/auth-details)))
 
 (defun twaddle/find-syms (prefix-str)
   (let ((no-private t) res)
@@ -617,7 +688,6 @@ for more details.")
                       (setq res (cons atom res)))))))
      obarray)
     res))
-
 
 ;; sketch of how to sign into twitter privately
 (defun browse-url-firefox-private (url &optional new-win)
@@ -639,16 +709,21 @@ You must supply a browser function to use to complete the oauth "
   (elnode-start 'twaddle-callback-handler :port twaddle-auth-server-port)
   (twaddle/auth-start (intern auth-browser-function)))
 
-(defun twaddle ()
+;;;###autoload
+(defun twaddle (&optional timeline)
   "Open or update the home timeline in twitter.
 
 \\{twaddle-timeline-mode-map}"
   (interactive)
-  (if (buffer-live-p (twaddle/get-twitter-buffer))
-      (with-current-buffer (twaddle/get-twitter-buffer)
-        (twaddle-timeline-pull-next))
-      ;; Else set it all up
-      (twaddle/status-get "home_timeline")))
+  (let ((page (or timeline "home_timeline")))
+    (let* ((user (kva "screen_name" twaddle/auth-details))
+           (home-buffer (twaddle/get-twitter-buffer user page)))
+      (if (buffer-live-p home-buffer)
+          (with-current-buffer
+              (twaddle/get-twitter-buffer user page)
+            (twaddle-timeline-pull-next))
+          ;; Else set it all up
+          (twaddle/status-get user page)))))
 
 (provide 'twaddle)
 
