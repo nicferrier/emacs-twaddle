@@ -614,6 +614,7 @@ forwards.  The search wraps round either backwards or forwards."
     (define-key map (kbd "e") 'twaddle-timeline-eww)
     (define-key map (kbd "m") 'twaddle-timeline-mentions)
     (define-key map (kbd "h") 'twaddle-timeline-homepage)
+    (define-key map (kbd "R") 'twaddle-retweet)
     (define-key map (kbd "q") 'bury-buffer)
     map)
   "The timeline mode map.")
@@ -671,6 +672,18 @@ for more details.")
 
 (defconst twaddle/twitter-rt "https://api.twitter.com/1.1/statuses/retweet/%s.json")
 
+(defun twaddle/retweet-mark (tweet-id buffer)
+  (with-current-buffer buffer
+    (save-excursion
+      (goto-char (point-min))
+      (match (twaddle/find-property :tweet-id (equal tweet-id))
+        (:done (error "twaddle couldn't find the tweet %s" tweet-id))
+        ((? numberp pt)
+         (progn
+           (goto-char pt)
+           (goto-char (line-beginning-position))
+           (insert "! ")))))))
+
 (defun twaddle-retweet (tweet-id buffer)
   (interactive
    (list (get-text-property (point) :tweet-id)
@@ -681,15 +694,7 @@ for more details.")
        (goto-char (point-min))
        (insert (format "%S\n\n" data))
        (message "twaddle updated your twitter."))
-     (with-current-buffer buffer
-       (save-excursion
-         (goto-char (point-min))
-         (match (twaddle/find-property 'tweet-id (equal tweet-id))
-           (:done (error "twaddle couldn't find the tweet %s" tweet-id))
-           ((? numberp pt) (progn
-                             (goto-char pt)
-                             (goto-char (line-beginning-position))
-                             (insert "! ")))))))
+     (twaddle/retweet-mark tweet-id buffer))
    (format twaddle/twitter-rt tweet-id)
    nil
    :oauth-token (kva "oauth_token" twaddle/auth-details)
