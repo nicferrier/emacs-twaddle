@@ -571,6 +571,32 @@ forwards.  The search wraps round either backwards or forwards."
   (interactive)
   (eww (thing-at-point-url-at-point)))
 
+(defconst twaddle/twitter-update "https://api.twitter.com/1.1/statuses/update.json"
+  "The update URL.")
+
+(defun twaddle-post-status (status &optional reply-id)
+  (interactive (list (read-from-minibuffer "Status: ")))
+  (twaddle/web
+   (lambda (con hdr data)
+     (with-current-buffer (get-buffer-create "*twaddle-update*")
+       (goto-char (point-min))
+       (insert (format "%S\n\n" data))
+       (message "twaddle updated your twitter.")))
+   twaddle/twitter-update
+   `(("status" . ,status)
+     ,(when reply-id
+            (cons "in_reply_to_status_id" reply-id)))
+   :oauth-token (kva "oauth_token" twaddle/auth-details)
+   :oauth-token-secret (kva "oauth_token_secret" twaddle/auth-details)))
+
+(defun twaddle-timeline-reply (status tweet-id)
+  "Reply to the current tweet."
+  (interactive 
+   (list (read-from-minibuffer "Status: ")
+         (get-text-property (point) :tweet-id)))
+  (twaddle-post-status status tweet-id))
+
+
 (defconst twaddle/timeline-mode-map
   (let ((map (make-keymap)))
     (define-key map (kbd "RET") 'browse-url-at-point)
@@ -637,22 +663,6 @@ for more details.")
          :method "GET"
          :oauth-token (kva "oauth_token" twaddle/auth-details)
          :oauth-token-secret (kva "oauth_token_secret" twaddle/auth-details)))))
-
-(defconst twaddle/twitter-update "https://api.twitter.com/1.1/statuses/update.json"
-  "The update URL.")
-
-(defun twaddle-post-status (status &optional reply)
-  (interactive (list (read-from-minibuffer "Status: ")))
-  (twaddle/web
-   (lambda (con hdr data)
-     (with-current-buffer (get-buffer-create "*twaddle-update*")
-       (goto-char (point-min))
-       (insert (format "%S\n\n" data))
-       (message "twaddle updated your twitter.")))
-   twaddle/twitter-update
-   `(("status" . ,status))
-   :oauth-token (kva "oauth_token" twaddle/auth-details)
-   :oauth-token-secret (kva "oauth_token_secret" twaddle/auth-details)))
 
 (defconst twaddle/twitter-rt "https://api.twitter.com/1.1/statuses/retweet/%s.json")
 
