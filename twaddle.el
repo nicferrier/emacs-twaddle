@@ -301,7 +301,12 @@ then sends HTML back to eww."
     (elnode-send-html
      httpcon
      (format
-      "<h1>thanks! twaddle should be working in your emacs now!</h1><pre>%S</pre>"
+      "<html><style>
+body {font-family: sans-serif;}
+</style>
+<h1>thanks!</h1>
+<p>go back to Emacs and check, twaddle should be working now.</p>
+</html>"
       (list verifier oauth-token)))))
 
 
