@@ -435,7 +435,8 @@ body {font-family: sans-serif;}
      'aget
      `(("text" . ,(twaddle/text-munge text urls-vector))
        ("user" . ,username)))
-    :tweet-id tweet-id))
+    :tweet-id tweet-id
+    :from username))
   (twaddle/avatar-get (point-marker) username avatar-url)
   (when media-url
     (twaddle/media-get (point-marker) media-url)))
@@ -592,7 +593,9 @@ forwards.  The search wraps round either backwards or forwards."
 (defun twaddle-timeline-reply (status tweet-id)
   "Reply to the current tweet."
   (interactive 
-   (list (read-from-minibuffer "Status: ")
+   (list (read-from-minibuffer
+          "Status: "
+          (concat "@" (get-text-property (point) :from) " "))
          (get-text-property (point) :tweet-id)))
   (twaddle-post-status status tweet-id))
 
@@ -607,6 +610,7 @@ forwards.  The search wraps round either backwards or forwards."
     (define-key map (kbd "S") 'twaddle-timeline-source)
     (define-key map (kbd "g") 'twaddle-timeline-pull-next)
     (define-key map (kbd "n") 'twaddle-post-status)
+    (define-key map (kbd "r") 'twaddle-timeline-reply)
     (define-key map (kbd "e") 'twaddle-timeline-eww)
     (define-key map (kbd "m") 'twaddle-timeline-mentions)
     (define-key map (kbd "h") 'twaddle-timeline-homepage)
