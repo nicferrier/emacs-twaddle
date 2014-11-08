@@ -610,6 +610,7 @@ forwards.  The search wraps round either backwards or forwards."
     (define-key map (kbd "e") 'twaddle-timeline-eww)
     (define-key map (kbd "m") 'twaddle-timeline-mentions)
     (define-key map (kbd "h") 'twaddle-timeline-homepage)
+    (define-key map (kbd "q") 'bury-buffer)
     map)
   "The timeline mode map.")
 
