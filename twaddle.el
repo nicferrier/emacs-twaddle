@@ -642,7 +642,8 @@ for more details.")
           #'identity
           `(("screen_name" . ,screen-name)
             ,(let ((since-id (kva 'id_str (elt twaddle/twitter-result 0))))
-                  (if (and (numberp since-id) (buffer-live-p since-buffer))
+                  (if (and (> (string-to-int (or since-id "")) 0)
+                           (buffer-live-p since-buffer))
                       (with-current-buffer since-buffer
                         (cons "since-id" since-id))
                       '("count" . "10")))))
