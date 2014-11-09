@@ -386,7 +386,7 @@ body {font-family: sans-serif;}
             (lambda (s) (kva s replacements))
             decoded))))))
 
-(defun twaddle/media-get (marker avatar-url)
+(defun twaddle/media-get (marker media-url)
   "Get the MEDIA-URL and insert at MARKER."
   (web-http-get
    (lambda (con hdr data)
@@ -399,34 +399,13 @@ body {font-family: sans-serif;}
            (insert-image
             (create-image
              (string-as-unibyte data)
-             (kva (file-name-extension avatar-url)
+             (kva (file-name-extension media-url)
                   '(("png" . png)
                     ("jpg" . jpeg)
                     ("jpeg" . jpeg)
-                    ("gif" . 'gif))) t))
+                    ("gif" . 'gif))) t :max-height 100))
            (insert "\n")))))
-   :url avatar-url))
-
-(defun twaddle/avatar-get (marker username avatar-url)
-  "Get the AVATAR-URL for USERNAME and insert at MARKER."
-  (web-http-get
-   (lambda (con hdr data)
-     (with-current-buffer (marker-buffer marker)
-       (save-excursion
-         (goto-char marker)
-         (forward-line -1)
-         (goto-char (line-beginning-position))
-         (let ((buffer-read-only nil))
-           (insert-image
-            (create-image
-             (string-as-unibyte data)
-             (kva (file-name-extension avatar-url)
-                  '(("png" . png)
-                    ("jpg" . jpeg)
-                    ("jpeg" . jpeg)
-                    ("gif" . 'gif))) t))
-           (insert "  ")))))
-   :url avatar-url))
+   :url media-url))
 
 (defun twaddle/insert-entry (tweet-id username avatar-url text urls-vector media-url)
   (insert
@@ -438,7 +417,7 @@ body {font-family: sans-serif;}
        ("user" . ,username)))
     :tweet-id tweet-id
     :from username))
-  (twaddle/avatar-get (point-marker) username avatar-url)
+  (twaddle/media-get (point-marker) avatar-url)
   (when media-url
     (twaddle/media-get (point-marker) media-url)))
 
