@@ -356,7 +356,8 @@ body {font-family: sans-serif;}
          (buf (get-buffer name)))
     (unless buf
       (with-current-buffer (setq buf (get-buffer-create name))
-        (twaddle-timeline-mode)))
+        (twaddle-timeline-mode)
+        (setq twaddle/twitter-timeline timeline)))
     buf))
 
 (defun twaddle/text-munge (text urls)
