@@ -531,7 +531,7 @@ forwards.  The search wraps round either backwards or forwards."
 (defun twaddle-timeline-homepage ()
   "Get the home-timeline."
   (interactive)
-  (twaddle))
+  (twaddle "home_timeline"))
 
 (defun twaddle-timeline-mentions ()
   "Get the mentions timeline."
