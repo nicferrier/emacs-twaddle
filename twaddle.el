@@ -436,17 +436,25 @@ body {font-family: sans-serif;}
           (match it
             ((alist 'text text
                     'id_str tweet-id
+                    'user (alist 'screen_name username
+                                 'screen_name rt-username
+                                 'profile_image_url avatar-url)
                     'retweeted_status (alist 'id_str (? 'stringp rt_id_str)
-                                             'text text) ; pull the origin text
+                                             'text text
+                                             'user (alist 
+                                                    'screen_name username
+                                                    'profile_image_url avatar-url))
                     'entities (alist 'urls urls-vec
                                      'media
                                      (funcall (lambda (v)(ignore-errors (aref v 0)))
-                                              (alist 'media_url media-url)))                    
-                    'user (alist 'screen_name username
-                                 'profile_image_url avatar-url))
-             (twaddle/insert-entry tweet-id username
-                                   avatar-url (concat "RT " text)
-                                   urls-vec media-url))
+                                              (alist 'media_url media-url))))
+             (twaddle/insert-entry
+              tweet-id username
+              avatar-url
+              (format "RT %s %s"  ;; I think the properties aren't coming out.
+                      (propertize (concat "by " rt-username) :face 'italic)
+                      text)
+              urls-vec media-url))
             ((alist 'text text
                     'id_str tweet-id
                     'entities (alist 'urls urls-vec
@@ -455,7 +463,8 @@ body {font-family: sans-serif;}
                                               (alist 'media_url media-url)))
                     'user (alist 'screen_name username
                                  'profile_image_url avatar-url))
-             (twaddle/insert-entry tweet-id username avatar-url text urls-vec media-url))))))
+             (twaddle/insert-entry tweet-id username
+                                   avatar-url text urls-vec media-url))))))
     (pop-to-buffer (current-buffer))))
 
 (defun twaddle-timeline-source ()
