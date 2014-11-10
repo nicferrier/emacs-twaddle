@@ -419,7 +419,7 @@ body {font-family: sans-serif;}
     :from username))
   (twaddle/media-get (point-marker) avatar-url)
   (when media-url
-    (twaddle/media-get (point-marker) media-url)))
+    (twaddle/media-get (point-marker) (concat media-url ":small"))))
 
 (defun twaddle/twitter-buffer (screen-name timeline json)
   "Display the JSON for TIMELINE."
