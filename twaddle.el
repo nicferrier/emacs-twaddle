@@ -668,7 +668,7 @@ for more details.")
       (goto-char (point-min))
       (match (twaddle/find-property :tweet-id (equal tweet-id))
         (:done (error "twaddle couldn't find the tweet %s" tweet-id))
-        ((? numberp pt)
+        ((? 'numberp pt)
          (progn
            (goto-char pt)
            (goto-char (line-beginning-position))
