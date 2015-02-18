@@ -291,7 +291,7 @@ then sends HTML back to eww."
                (elnode-http-params httpcon)))
     (twaddle/web
      (lambda (con hdr data)
-       (let ((alist (elnode-http-query-to-alist data)))
+       (let ((alist (elnode--http-query-to-alist data)))
          ;; Save the auth data
          (setq twaddle/auth-details alist)
          ;; Show the timeline
